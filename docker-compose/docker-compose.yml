@@ -1,0 +1,148 @@
+﻿version: '3.8'
+
+# QNAP Container Station docker compose yaml file.
+
+services:
+
+# Reverse Proxy
+# =============
+
+  traefik:
+    container_name: 'traefik'
+    image: traefik:latest
+    ports:
+      - "443:443"
+      - "5671:5671"
+      - "3012:3012"
+    command:
+      - --global.checkNewVersion=true
+      # Configure entrypoint
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.rabbitmq.address=:5671
+      - --entrypoints.bitwarden.address=:3012
+      - --log.level=DEBUG
+      - --accesslog=true
+      - --api
+      - --api.dashboard=true
+      - --api.debug=true
+      # Global HTTP -> HTTPS
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.websecure.http.tls=true
+      # Providers
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.watch=true
+      - --providers.file.filename=/data/config.yml
+    volumes:
+      - /share/Container/traefik/data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.orion6.lan`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.services.traefik.loadbalancer.server.port=9080"
+
+# The use for the containers must be set to:
+
+  youtrack:
+    image: jetbrains/youtrack:2022.3.65373
+    container_name: "youtrack"
+    volumes:
+      - /share/Container/youtrack/data:/opt/youtrack/data
+      - /share/Container/youtrack/conf:/opt/youtrack/conf
+      - /share/Container/youtrack/logs:/opt/youtrack/logs
+      - /share/Container/youtrack/backups:/opt/youtrack/backups
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.youtrack.loadbalancer.server.port=8080"
+      - "traefik.http.routers.youtrack.rule=Host(`youtrack.orion6.lan`)"
+      - "traefik.http.routers.youtrack.entrypoints=websecure"
+
+  rabbitmq:
+    container_name: 'rabbitmq'
+    image: rabbitmq:management
+    environment:
+      - RABBITMQ_DEFAULT_USER= -- username --
+      - RABBITMQ_DEFAULT_PASS= -- password --
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.orion6.lan`)"
+      - "traefik.http.routers.rabbitmq.entrypoints=websecure"
+      - "traefik.http.services.rabbitmq.loadbalancer.server.port=15672"
+      - "traefik.tcp.routers.rabbitmq1.rule=HostSNI(`rabbitmq.orion6.lan`)"
+      - "traefik.tcp.routers.rabbitmq1.entrypoints=rabbitmq"
+      - "traefik.tcp.services.rabbitmq1.loadbalancer.server.port=5672"
+      - "traefik.tcp.routers.rabbitmq1.tls=true"
+
+  postgres:
+    container_name: 'postgres'
+    image: postgres:15.2
+    restart: on-failure
+    ports:
+      - 0.0.0.0:5432:5432
+    volumes:
+      - /share/Container/postgresdb:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD= -- password --
+
+# Postgres management console.
+
+# if you want to connect to the Postgres Database from the management console, enter
+# the container name (postgres) as host. Al TCP/IP traffick will then be routed through
+# internal network.
+
+# https://www.kisphp.com/posgresql/docker-compose-setup-for-postgres13-and-pgadmin4
+
+# Documentation on container deployment:
+# https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html
+
+  pgadmin:
+    container_name: 'pgadmin'
+    image: dpage/pgadmin4
+    environment:
+      - PGADMIN_DEFAULT_EMAIL= -- email --
+      - PGADMIN_DEFAULT_PASSWORD= -- password --
+      - PGADMIN_DISABLE_POSTFIX
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.orion6.lan`)"
+      - "traefik.http.routers.pgadmin.entrypoints=websecure"
+      - "traefik.http.services.pgadmin.loadbalancer.server.port=80"
+
+  # Die directory muss owner 5050:5050 sein.
+    volumes:
+      - /share/Container/pgadmin:/var/lib/pgadmin
+
+  # https://hub.docker.com/r/vaultwarden/server
+  bitwarden:
+    container_name: 'bitwarden'
+    image: vaultwarden/server:latest
+    expose:
+      - "80"
+    volumes:
+      - /share/Container/bitwarden:/data
+    restart: on-failure
+    environment:
+      - WEBSOCKET_ENABLED=true
+      - ADMIN_TOKEN= -- token --
+    logging:
+      driver: "json-file"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.bitwarden.rule=Host(`bitwarden.orion6.lan`)"
+      - "traefik.http.routers.bitwarden.entrypoints=websecure"
+      - "traefik.http.services.bitwarden.loadbalancer.server.port=80"
+      - "traefik.tcp.routers.bitwarden1.rule=HostSNI(`bitwarden.orion6.lan`)"
+      - "traefik.tcp.routers.bitwarden1.entrypoints=bitwarden"
+      - "traefik.tcp.services.bitwarden1.loadbalancer.server.port=3012"
+      - "traefik.tcp.routers.bitwarden1.tls=true"
+
+  whoami:
+    container_name: 'whoami'
+    image: "traefik/whoami"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=Host(`whoami.orion6.lan`)"
+      - "traefik.http.routers.whoami.entrypoints=websecure"

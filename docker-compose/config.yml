@@ -1,0 +1,12 @@
+tls:
+  certificates:
+    - certFile: "/data/certificate.crt"
+      keyFile: "/data/private.key"
+      stores:
+        - default
+
+  stores:
+    default:
+      defaultCertificate:
+        certFile: "/data/certificate.crt"
+        keyFile: "/data/private.key"
